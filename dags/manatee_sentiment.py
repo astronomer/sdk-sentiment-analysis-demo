@@ -1,5 +1,7 @@
 """
-### The sentiment of Manatee Jokes
+### Use the HuggingFace and the Astro Python SDK to run a sentiment analysis on Manatee jokes
+
+This DAG uses the Astro Python SDK to ingest a joke from the Manatee Joke API and HuggingFace to run a sentiment analysis on the joke.
 """
 
 from airflow.decorators import dag
@@ -16,10 +18,14 @@ import os
 task_logger = logging.getLogger("airflow.task")
 
 DB_CONN_ID = "snowflake_default"
+HUGGINGFACE_API_TOKEN = os.environ["HUGGINGFACE_API_TOKEN"]
+SENTIMENT_ANALYSIS_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
 
 
 @aql.dataframe
 def get_sentences_from_api():
+    "Get a random joke from the Manatee Joke API."
+
     r = requests.get("https://manateejokesapi.herokuapp.com/manatees/random")
     df = pd.json_normalize(r.json())
     df.columns = [col_name.upper() for col_name in df.columns]
@@ -31,17 +37,17 @@ def get_sentences_from_api():
 @aql.transform
 def transform(in_table):
     return """
-            SELECT SETUP, PUNCHLINE
+            SELECT "SETUP", "PUNCHLINE"
             FROM {{ in_table }};
             """
 
 
 @aql.dataframe
-def sentiment_analysis(df: pd.DataFrame):
+def sentiment_analysis(df: pd.DataFrame, huggingface_api_token: str, model_name: str):
+    "Run a sentiment analysis on the setup and punchline of the joke."
+
     print(df)
-    api_token = os.environ["API_TOKEN"]
-    model_name = "cardiffnlp/twitter-roberta-base-sentiment"
-    headers = {"Authorization": f"Bearer {api_token}"}
+    headers = {"Authorization": f"Bearer {huggingface_api_token}"}
 
     query = list(df["setup"].values) + list(df["punchline"].values)
     print(query)
@@ -64,8 +70,12 @@ def sentiment_analysis(df: pd.DataFrame):
     schedule=None,
     catchup=False,
 )
-def live_pipeline():
+def manatee_sentiment():
     start = EmptyOperator(task_id="start")
+
+    # ------------------------- #
+    # Ingest and transform data #
+    # ------------------------- #
 
     in_data = get_sentences_from_api(
         output_table=Table(conn_id=DB_CONN_ID, name="in_joke")
@@ -74,6 +84,10 @@ def live_pipeline():
     transformed_data = transform(
         in_table=in_data, output_table=Table(conn_id=DB_CONN_ID, name="joke_table")
     )
+
+    # ----------------------------------------------- #
+    #  Data Quality Checks using the Astro Python SDK #
+    # ----------------------------------------------- #
 
     validate_table = aql.check_table(
         dataset=transformed_data,
@@ -90,11 +104,21 @@ def live_pipeline():
         },
     )
 
-    run_model = sentiment_analysis(transformed_data)
+    # ---------------------- #
+    # Run sentiment analysis #
+    # ---------------------- #
+
+    run_model = sentiment_analysis(
+        df=transformed_data,
+        huggingface_api_token=HUGGINGFACE_API_TOKEN,
+        model_name=SENTIMENT_ANALYSIS_MODEL,
+    )
+
+    start >> in_data
 
     transformed_data >> [validate_table, validate_columns] >> run_model
 
     aql.cleanup()
 
 
-live_pipeline()
+manatee_sentiment()
