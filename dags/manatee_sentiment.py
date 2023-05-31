@@ -1,5 +1,5 @@
 """
-### Use the HuggingFace and the Astro Python SDK to run a sentiment analysis on Manatee jokes
+### Run sentiment analysis using HuggingFace and Astro SDK
 
 This DAG uses the Astro Python SDK to ingest a joke from the Manatee Joke API and HuggingFace to run a sentiment analysis on the joke.
 """
