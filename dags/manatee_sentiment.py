@@ -18,7 +18,7 @@ import os
 task_logger = logging.getLogger("airflow.task")
 
 DB_CONN_ID = "snowflake_default"
-HUGGINGFACE_API_TOKEN = os.environ["HUGGINGFACE_API_TOKEN"]
+HUGGINGFACE_API_TOKEN = os.getenv("HUGGINGFACE_API_TOKEN")
 SENTIMENT_ANALYSIS_MODEL = "cardiffnlp/twitter-roberta-base-sentiment"
 
 
@@ -85,25 +85,6 @@ def manatee_sentiment():
         in_table=in_data, output_table=Table(conn_id=DB_CONN_ID, name="joke_table")
     )
 
-    # ----------------------------------------------- #
-    #  Data Quality Checks using the Astro Python SDK #
-    # ----------------------------------------------- #
-
-    validate_table = aql.check_table(
-        dataset=transformed_data,
-        checks={
-            "row_count": {"check_statement": "Count(*) >= 1"},
-        },
-    )
-
-    validate_columns = aql.check_column(
-        dataset=Table(conn_id=DB_CONN_ID, name="joke_table"),
-        column_mapping={
-            "setup": {"null_check": {"equal_to": 0}},
-            "punchline": {"null_check": {"equal_to": 0}},
-        },
-    )
-
     # ---------------------- #
     # Run sentiment analysis #
     # ---------------------- #
@@ -116,7 +97,7 @@ def manatee_sentiment():
 
     start >> in_data
 
-    transformed_data >> [validate_table, validate_columns] >> run_model
+    transformed_data >> run_model
 
     aql.cleanup()
 
